@@ -1,0 +1,12 @@
+{
+  "commit": {
+    "commit": "caecf41cc47275bd5d02d3e19e205883554edae5",
+    "author": "nldoc <jasa@posteo.de>",
+    "time": "2021-01-29 14:43:25",
+    "files": 2,
+    "merge": false,
+    "message": "fixed typos in documentation\n"
+  },
+  "remote": "https://github.com/ropensci/nlrx",
+  "pkg": "nlrx"
+}

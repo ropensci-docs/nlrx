@@ -1,0 +1,12 @@
+{
+  "commit": {
+    "commit": "7f0d6c6d922ee4121a7735d3ec1f18dba3ce6994",
+    "author": "nldoc <jasa@posteo.de>",
+    "time": "2024-01-29 12:06:01",
+    "files": 6,
+    "merge": true,
+    "message": "Merge pull request #93 from ropensci/fix_cran_notes_2024_01\n\nfix cran notes and update version"
+  },
+  "repo": "https://github.com/ropensci/nlrx",
+  "pkg": "nlrx"
+}

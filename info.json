@@ -1,0 +1,13 @@
+{
+  "commit": {
+    "commit": "3781766fcff7cd870134491501b78c2be104f6e9",
+    "author": "nldoc <jasa@posteo.de>",
+    "time": "2025-11-25T13:59:56Z",
+    "files": 274,
+    "merge": true,
+    "message": "Merge pull request #109 from ropensci/fix-broken-links\n\nFix broken links"
+  },
+  "repo": "https://github.com/ropensci/nlrx",
+  "pkg": "nlrx",
+  "time": "2026-08-30T07:55:16Z"
+}

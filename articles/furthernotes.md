@@ -1,0 +1,468 @@
+# Advanced configuration
+
+## Variables and constants definitions
+
+Correctly defining variables within the experiment class object is
+crucial for creating simdesigns. The implemented simdesigns have
+different requirements for variable definitions:
+
+| Simdesign | Variable requirements | data type |
+|----|----|----|
+| simdesign_simple | only constants are used | any |
+| simdesign_distinct | values (need to have equal length) | any |
+| simdesign_ff | values, or min, max, step (values is prioritized) | any |
+| simdesign_lhs | min, max, qfun | numeric |
+| simdesign_sobol | min, max, qfun | numeric |
+| simdesign_sobol2007 | min, max, qfun | numeric |
+| simdesign_soboljansen | min, max, qfun | numeric |
+| simdesign_morris | min, max, qfun | numeric |
+| simdesign_eFast | min, max, qfun | numeric |
+| simdesign_genSA | min, max | numeric |
+| simdesign_genAlg | min, max | numeric |
+| simdesign_ABCmcmc_Marjoram | min, max, qfun | numeric |
+| simdesign_ABCmcmc_Marjoram_original | min, max, qfun | numeric |
+| simdesign_ABCmcmc_Wegmann | min, max, qfun | numeric |
+
+Additionally, please note the following restrictions in order to define
+variables and constants correctly:
+
+- Categorical variable values are currently only allowed for
+  simdesign_simple, simdesign_distinct and simdesign_ff.
+- Variable values that should be recognized by NetLogo as strings are
+  given as plain character values (e.g. `"string"`). Up to nlrx 0.4.6
+  these had to be nested inside escaped quotes (`"\"string\""`); such
+  values are still accepted and the superfluous quotes are removed, but
+  the escaping is no longer needed.
+- Variable values that should be recognized by NetLogo as logical are
+  given as logicals (e.g. `FALSE`). The strings `"true"` and `"false"`
+  are still accepted and converted.
+- NetLogo literals such as a list (`[1 2 3]`) cannot be passed as
+  parameter values: character values are always quoted, so the literal
+  would reach NetLogo as a string. Define such globals within the model
+  instead.
+- It is not allowed to list the same variable in the variables and
+  constants list.
+- NetLogo model parameters that are not listed in any of these two lists
+  will be set with their default value from the NetLogo model interface.
+- simdesign_simple() requires at least one defined constant within the
+  constants list. If your model does not have any globals (GUI and
+  code), please create a dummy global (either create a global widget on
+  the GUI or add a dummy variable to the globals\[\] code section) for
+  your model and put it in the constants list with an appropriate value.
+
+A complete list of all valid NetLogo parameters can be loaded by
+committing a nl object with a valid modelpath to the function
+[`report_model_parameters()`](https://docs.ropensci.org/nlrx/reference/report_model_parameters.md).
+This function reads all GUI elements of the NetLogo model that can be
+set by nlrx. After attaching an experiment to an nl object, validity of
+defined experiment variables and constants can be checked by commiting
+the nl object to the function
+[`eval_variables_constants()`](https://docs.ropensci.org/nlrx/reference/eval_variables_constants.md).
+The function will report detailed warnings or error messages, if
+definitions of variables or constants are invalid.
+
+## Print functions
+
+`print(nl)` can be used with any nl class object. The function will
+print a formatted overview of class contents to the console. The
+function will also print a short summary checklist that may be helpful
+for debugging certain issues. Depending on the simdesign, the summary
+table also prints the estimated number of runs.
+
+## Capturing progress of model simulations
+
+The
+[`run_nl_all()`](https://docs.ropensci.org/nlrx/reference/run_nl_all.md)
+function supports the
+[progressr](https://github.com/futureverse/progressr) framework for
+capturing progress of simulations. Following this logic, the function
+itself will be silent unless it is wrapped within a
+[`progressr::with_progress()`](https://progressr.futureverse.org/reference/with_progress.html)
+call. By using different handlers, the layout of the progress bar is
+different. For example, installing the package
+[progress](https://github.com/r-lib/progress) and using the handler
+`progressr::handlers("progress")` will additionally print the current
+row and seed of the parameter matrix. For example, to run a nl parameter
+matrix with progress bar one can do:
+
+``` r
+
+progressr::handlers("progress")
+results <- progressr::with_progress(run_nl_all(nl))
+```
+
+The
+[`run_nl_dyn()`](https://docs.ropensci.org/nlrx/reference/run_nl_dyn.md)
+function might provide progress output depending on the chosen method
+(for example ABC offers a progress bar). However, dynamic experiments
+are difficult to track because it is not clear how long the complete
+experiment will take from the beginning.
+
+The
+[`run_nl_one()`](https://docs.ropensci.org/nlrx/reference/run_nl_one.md)
+does not report any progress because it only executes one simulation.
+
+In addition, NetLogo print commands are redirected to the R console.
+Thus, print commands can be used within the NetLogo model code to
+display the current progress of simulations in the R console. Another
+possibility is, to define a print reporter procedure in the experiment
+slot “idfinal” that is executed at the end of each simulation.
+
+Capturing output from multiple processes in parallelized environments to
+one R console is not straightforward. If such functionality is needed,
+we suggest to write the current progress to an output file directly from
+NetLogo (for example using the idrunnum functionality of nlrx, see
+section “Notes on self-written output”). These output files can then be
+monitored to capture the progress of the parallelized model executions.
+
+## Access to intermediate results
+
+For long-running experiments and simdesigns, it may be beneficial to
+gain access to intermediate results. This is especially useful to obtain
+results of successful runs, even if the R session crashes or gets
+stalled. The `run_all_all()` and
+[`run_nl_one()`](https://docs.ropensci.org/nlrx/reference/run_nl_one.md)
+functions provide a parameter `writeRDS`. If this is set to `TRUE`, a
+rds file, carrying the current seed and siminputrow will be written to
+the specified `outpath` of the nl object experiment. Please note, that
+in case of the `run_all_all()` function, a huge number of rds files may
+be written to your disk (check `print(nl)` to get an estimated number of
+runs/files) which may cause other issues.
+
+Another option to get intermediate results, is to split-up the job into
+smaller chunks. E.g. one could create a loop around the
+[`run_nl_all()`](https://docs.ropensci.org/nlrx/reference/run_nl_all.md)
+and in each iteration only use part of the `nl@simdesign@siminput`
+tibble (temporary overwrite the `nl@simdesign@siminput` tibble with a
+copy that only contains a specific slice of the parameter matrix). Then
+after each iteration, one can write the results of the complete chunk as
+an rds file to disk. Another option would be to create an outer loop
+around the
+[`run_nl_all()`](https://docs.ropensci.org/nlrx/reference/run_nl_all.md)
+using the random seeds from the `nl@simdesign@simseeds` slot. Then,
+within each loop iteration the `nl@simdesign@simseeds` slot would be
+overwritten with the seed from the current loop iteration before the nl
+object is passed to
+[`run_nl_all()`](https://docs.ropensci.org/nlrx/reference/run_nl_all.md).
+Then again, after each iteration, one can write the results of the
+complete chunk as an rds file to disk.
+
+To collect the intermediate results, simply read all rds files from the
+outpath in a loop and combine the tibbles, for example by using
+[`dplyr::bind_rows()`](https://dplyr.tidyverse.org/reference/bind_rows.html).
+
+## Handling NetLogo runtime errors
+
+Usually, runtime errors of NetLogo model simulations are printed to the
+R console and the current execution of
+[`run_nl_all()`](https://docs.ropensci.org/nlrx/reference/run_nl_all.md),
+[`run_nl_one()`](https://docs.ropensci.org/nlrx/reference/run_nl_one.md)
+or
+[`run_nl_dyn()`](https://docs.ropensci.org/nlrx/reference/run_nl_dyn.md)
+breaks. However, it can happen that a model simulation freezes due to
+Java runtime errors. Unfortunately it is not possible to terminate the
+Java virtual machine or print an error message to the console after such
+a runtime error occurred. The current R session and the frozen Java
+Virtual Machine need to be terminated manually. Thus, NetLogo models
+should be debugged in NetLogo prior to execution of large experiments
+with nlrx. Capturing progress of model simulations (see section
+“Capturing progress of model simulations”) might help in debugging
+runtime errors that freeze the Java Virtual Machine.
+
+## Self-written NetLogo output
+
+The experiment provides a slot called “idrunnum”. This slot can be used
+to transfer the current nlrx experiment name, random seed and runnumber
+(siminputrow) to NetLogo. To use this functionality, a string input
+field widget needs to be created on the GUI of your NetLogo model. The
+name of this widget can be entered into the “idrunnum” field of the
+experiment. During simulations, the value of this widget is
+automatically updated with a generated string that contains the current
+nlrx experiment name, random seed and siminputrow
+(“expname_seed_siminputrow”). For self-written output In NetLogo, we
+suggest to include this global variable which allows referencing the
+self-written output files to the collected output of the nlrx
+simulations in R.
+
+## Temporary files management
+
+nlrx uses temporary files to store experiment xml files, commandline
+batch files to start NetLogo simulations and csv output files. These
+temporary files are stored in the default temporary files directory of
+the R session. By default, these files are deleted after each simulation
+run. However, if it is needed to look at this files, automatic deletion
+of temporary files can be disabled by setting the corresponding cleanup
+parameters in the `run_nl` functions (cleanup.csv, cleanup.xml,
+cleanup.bat function parameters).
+
+On unix systems, it can happen that system processes delete files in the
+default temporary files folder. Thus, we recommend to reassign the
+temporary files folder for the R-session to another folder. The
+R-package [unixtools](https://www.rforge.net/unixtools/) provides a
+function to reassign the temporary files folder for the current
+R-session:
+
+``` r
+
+install.packages('unixtools', repos = 'http://www.rforge.net/')
+unixtools::set.tempdir("<path-to-temp-dir>")
+```
+
+## random-seed and replication management
+
+Running the same parameterization more than once is how stochasticity is
+quantified in nlrx. Every simulation is executed with an explicit random
+seed, so that each run can be identified and reproduced.
+
+The `nseeds` argument of the simdesign helper functions controls this.
+nlrx draws `nseeds` random seeds, stores them in the simdesign
+(`nl@simdesign@simseeds`), and passes each of them to NetLogo through
+BehaviorSpace’s special `random-seed` variable. Every parameterization
+is therefore executed once per seed, the seed is reported back in the
+`random-seed` column of the results, and re-running a design with the
+same seeds reproduces it exactly.
+
+``` r
+
+# Replicate every parameterization with five different random seeds:
+nl@simdesign <- simdesign_lhs(nl = nl, samples = 100, nseeds = 5, precision = 3)
+```
+
+The concept of nlrx is based on sensitivity analyses. Here, you may want
+to exclude stochasticity from your output and instead do multiple
+sensitivity analyses with the same parameter matrix but different random
+seeds. You can then observe the effect of stochasticity on the level of
+your final output, the sensitivity indices.
+
+The seed vector can also be replaced with your own, for example to
+repeat a specific set of runs:
+
+``` r
+
+setsim(nl, "simseeds") <- c(1234, 5678, 9012)
+```
+
+A single parameterization can be replicated directly with
+[`run_nl_one()`](https://docs.ropensci.org/nlrx/reference/run_nl_one.md),
+by passing more than one seed. The replicated runs are executed within
+one NetLogo instance and can be parallelized with `threads`:
+
+``` r
+
+results <- run_nl_one(nl = nl,
+                      seed = getsim(nl, "simseeds"),
+                      siminputrow = 1,
+                      threads = 4)
+```
+
+For the dynamic simdesigns (`simdesign_GenSA`, `simdesign_GenAlg` and
+the `simdesign_ABCmcmc_*` family), replication works differently,
+because the parameterizations are generated during execution. There, the
+`nreplicates` argument of
+[`run_nl_dyn()`](https://docs.ropensci.org/nlrx/reference/run_nl_dyn.md)
+defines how often each proposed parameterization is simulated before the
+results are aggregated and reported back to the algorithm. See the
+“Optimization” vignette for details.
+
+> The `repetition` slot of the experiment was removed in nlrx 0.5.0. It
+> was passed to BehaviorSpace, which repeated each parameterization with
+> seeds that nlrx neither controlled nor observed, so those runs could
+> not be reproduced. Use `nseeds` instead, or `nreplicates` for dynamic
+> designs.
+
+## Runtime and measurements
+
+The runtime of NetLogo model simulations can be controlled with two
+slots of the experiment class:
+
+- runtime - an integer that defines the maximum number of ticks that are
+  simulated
+- stopcond - a NetLogo reporter that reports true/false. Simulations are
+  automatically stopped if TRUE is reported. Defaults to NA_character\_
+  which means, no stop condition is applied.
+
+Runtime can be set to 0 or NA_integer\_ to allow for simulations without
+a pre-defined maximum runtime. However, this should only be done in
+combination with a proper stop condition (stopcond) or with NetLogo
+models that have a built-in stop condition. Otherwise, simulations might
+get stuck in endless loops.
+
+Two slots of the experiment class further define when measurements are
+taken:
+
+- tickmetrics - defines if measurements are taken at the end of the
+  simulation (final tick) or on each tick
+- evalticks - only applied when tickmetrics = “true”; defines a vector
+  of ticks for which output metrics are reported. Set to NA_integer\_ to
+  report all collected output.
+
+Depending on the evalticks definition, it might happen, that a
+simulation stops before any output has been collected. In such cases,
+output is still reported but all metrics that could not be collected for
+any defined evalticks will be filled up with NA.
+
+Four slots of the experiment class further define which measurements are
+taken:
+
+- metrics - vector of valid NetLogo reporters that are used to collect
+  data (e.g. c(“count turtles”))
+- metrics.turtles - a list with named vectors of strings defining valid
+  turtles-own variables that are taken as output measurements
+  (e.g. list(“turtles” = c(“who”, “pxcor”, “pycor”, “color”))
+- metrics.patches - vector of valid patches-own variables that are used
+  to collect patches data (e.g. c(“pxcor”, “pycor”, “pcolor”))
+- metrics.links - a list with named vectors of strings defining valid
+  links-own variables that are taken as output measurements
+  (e.g. list(“links” = c(“\[who\] of end1”, “\[who\] of end2”)))
+
+Although the metrics slot accepts any valid NetLogo reporter, such as
+“count patches”, reporter strings can become quite long and confusing.
+We suggest to create NetLogo reporter procedures for complex reporters
+in order to get a nice and clean results data frame. For example, the
+NetLogo reporter “count patches with \[pcolor = green\]” could be
+written as a NetLogo reporter function:
+
+``` r
+to-report green.patches
+  report count patches with [pcolor = green]
+end
+```
+
+In your nlrx experiment metrics field you can then enter “green.patches”
+which is way more intuitive then “count patches with \[pcolor =
+green\]”.
+
+## NetLogo extensions
+
+Usually, all NetLogo extensions that are shipped with NetLogo should
+also work with nlrx. However, depending on the system it can happen that
+NetLogo extensions are not found properly. To solve such problems we
+advise to put your `.nlogox` model file in the `models` subdirectory of
+the NetLogo installation path. A special case is the NetLogo r-extension
+because it needs to be stopped manually in between model runs. To
+achieve that, simply put the `r:stop` command in the `idfinal` slot of
+your experiment: `idfinal = "r:stop"`.
+
+## Parallelisation
+
+Since nlrx 0.5.0, parallelisation no longer relies on the `future` and
+`furrr` packages. Instead,
+[`run_nl_all()`](https://docs.ropensci.org/nlrx/reference/run_nl_all.md)
+organises the simulations into **blocks** and lets NetLogo execute the
+runs within a block in parallel via its own multithreading. Two
+arguments control this:
+
+- `block_size` — how many simulations are bundled into a single NetLogo
+  instance (one BehaviorSpace invocation). Blocks are processed one
+  after another, and NetLogo is re-initialised once per block.
+- `threads` — how many of the runs inside a block NetLogo executes
+  concurrently. Check how many are available on your machine with
+  [`parallel::detectCores()`](https://rdrr.io/r/parallel/detectCores.html).
+
+Note that there is no longer any R-level parallelism *across* blocks:
+blocks run sequentially, and all concurrency happens inside NetLogo,
+controlled by `threads`.
+
+### Parallelisation on a local machine
+
+To make use of several cores on your machine, bundle many runs into each
+block and let NetLogo run them concurrently:
+
+``` r
+
+# Use up to 8 concurrent runs, bundling 500 simulations per NetLogo instance:
+results <- run_nl_all(nl, block_size = 500, threads = 8)
+```
+
+A larger `block_size` means fewer NetLogo restarts (generally faster,
+with rapidly diminishing returns) but less frequent progress updates. A
+smaller `block_size` updates progress more often but re-initialises
+NetLogo more frequently (see also “Capturing progress of model
+simulations” above).
+
+### Parallelisation on a remote HPC cluster
+
+For large simulation designs, the runs can be distributed across the
+nodes of an HPC cluster. The recommended approach uses the
+[rslurm](https://cran.r-project.org/package=rslurm) package, which
+submits an R function as a SLURM **job array**: each array task runs on
+its own node and executes part of the simulation design. Within each
+node, `block_size` and `threads` control execution exactly as on a local
+machine.
+
+The example below splits the parameter table of an `nl` object into a
+chosen number of chunks and sends **one chunk per array task**. Each
+node executes its chunk with
+[`run_nl_all()`](https://docs.ropensci.org/nlrx/reference/run_nl_all.md)
+on a sliced copy of the `nl` object, so `block_size` and `threads` still
+control execution within the node. This keeps the number of scheduler
+jobs modest (one per chunk rather than one per run) — pick `n_chunks` to
+match how many nodes you want to occupy.
+
+Prerequisites on the HPC: NetLogo (\>= 7), Java, R, and the `nlrx` and
+`rslurm` packages must be installed on the cluster, and the `nlpath`,
+`modelpath` and `outpath` slots of your `nl` object must point to
+locations on the HPC filesystem — not your local machine.
+
+``` r
+
+library(rslurm)
+
+# Split the rows of the parameter table into contiguous chunks — one per node:
+n_chunks <- 20
+row_splits <- split(
+  seq_len(nrow(nl@simdesign@siminput)),
+  cut(seq_len(nrow(nl@simdesign@siminput)), n_chunks, labels = FALSE)
+)
+
+# One row per chunk, storing its first and last siminput row index:
+chunks <- data.frame(
+  first = vapply(row_splits, min, integer(1)),
+  last  = vapply(row_splits, max, integer(1))
+)
+
+# The function executed on each node — runs one chunk of the design.
+# All random seeds are run for the chunk's parameter rows.
+sim_fun <- function(first, last) {
+  library(nlrx)
+  nl_chunk <- nl
+  nl_chunk@simdesign@siminput <- nl@simdesign@siminput[first:last, ]
+  run_nl_all(nl_chunk, block_size = 100, threads = 1)
+}
+
+sjob <- slurm_apply(
+  f              = sim_fun,
+  params         = chunks,
+  jobname        = "nlrx_sim",
+  nodes          = nrow(chunks),        # one array task per chunk
+  cpus_per_node  = 1,                   # raise to match `threads` below
+  global_objects = "nl",               # ship the nl object to every node
+  pkgs           = c("nlrx"),
+  slurm_options  = list(
+    partition     = "medium",
+    time          = "01:00:00",
+    "mem-per-cpu" = "2G"
+  ),
+  submit = FALSE                        # create the job scripts without submitting
+)
+```
+
+To use NetLogo’s multithreading within each node, raise `threads` in
+`sim_fun()` and set `cpus_per_node` to the same value.
+
+Setting `submit = FALSE` creates a local `_rslurm_nlrx_sim/` folder with
+the generated job scripts without submitting them. Transfer this folder
+to the HPC, submit it there with `sbatch`, and once all array tasks have
+finished, collect the results (each chunk returns a results tibble,
+which are row-bound):
+
+``` r
+
+results <- get_slurm_out(sjob, outtype = "table")
+```
+
+For a complete walk-through of an HPC setup — cluster access,
+environment, running R jobs, and NetLogo/nlrx via Apptainer containers —
+see the [GWDG HPC
+guide](https://r-spatialecology.github.io/gwdg_hpc_guide/). The
+rslurm-based pattern generalises to any SLURM cluster.

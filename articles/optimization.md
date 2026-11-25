@@ -1,0 +1,395 @@
+# Optimization
+
+## Optimization with nlrx
+
+Here we present two simple examples for running an optimization
+algorithm on a NetLogo model with nlrx. In our example, we use the
+Simulated Annealing simdesign
+([`simdesign_GenSA()`](https://docs.ropensci.org/nlrx/reference/simdesign_GenSA.md)).
+However, except for the parameter definitions in the simdesign function
+and the output of the function, the genetic algorithm optimization
+([`simdesign_GenAlg()`](https://docs.ropensci.org/nlrx/reference/simdesign_GenAlg.md))
+works in the same way.
+
+We use the Wolf Sheep Predation model from the models library to show a
+basic example of the optimization workflow. Example 1 shows, how a
+NetLogo reporter can be used as a fitness criterion for optimization.
+Example 2 uses a self-defined evaluation function that calculates
+landscape metrics that are then used as fitness criterion.
+
+## Example 1: NetLogo reporter as fitness criterion
+
+#### Step 1: Create a nl object:
+
+``` r
+
+library(nlrx)
+# Windows default NetLogo installation path (adjust to your needs!):
+netlogopath <- file.path("C:/Program Files/NetLogo 7.0.4")
+modelpath <- file.path(netlogopath, "models/Sample Models/Biology/Wolf Sheep Predation.nlogox")
+outpath <- file.path("C:/out")
+# Unix default NetLogo installation path (adjust to your needs!):
+netlogopath <- file.path("/home/NetLogo 7.0.4")
+modelpath <- file.path(netlogopath, "models/Sample Models/Biology/Wolf Sheep Predation.nlogox")
+outpath <- file.path("/home/out")
+
+nl <- nl(nlversion = "7.0.4",
+         nlpath = netlogopath,
+         modelpath = modelpath,
+         jvmmem = 1024)
+```
+
+#### Step 2: Attach an experiment
+
+Because we want to apply an optimization algorithm, we need to define
+proper variable ranges. The algorithm is allowed to change the values of
+these parameters within these ranges in order to minimize our fitness
+criterion. In this example we want to use a reporter from the metrics
+slot for evaluating our model runs. Here we want to find a
+parameterization that leads to the maximum number of wolfs after 50
+ticks. Because the algorithm automatically searches for minimum values,
+we add `"1 / count wolves"` to the metrics vector in order to find the
+maximum number of wolves.
+
+It is also important to think about the settings for tickmetrics,
+runtime and evalticks. Because we only want to consider the last tick of
+the simulation, we set tickmetrics to “false” and runtime to 50. If more
+than one tick would be measured, the algorithm automatically calculates
+the mean value of the selected reporter. If you wish to apply other
+functions to aggregate temporal information into one value, you can use
+a self-defined evaluation function (see Example 2).
+
+``` r
+
+nl@experiment <- experiment(expname="wolf-sheep-GenSA1",
+                            outpath=outpath,
+                            tickmetrics="false",
+                            idsetup="setup",
+                            idgo="go",
+                            runtime=50,
+                            metrics=c("(1 / count wolves)"),
+                            variables = list('initial-number-sheep' = list(min=50, max=150, qfun="qunif"),
+                                             'initial-number-wolves' = list(min=50, max=150, qfun="qunif")),
+                            constants = list("model-version" = "sheep-wolves-grass",
+                                             "grass-regrowth-time" = 30,
+                                             "sheep-gain-from-food" = 4,
+                                             "wolf-gain-from-food" = 20,
+                                             "sheep-reproduce" = 4,
+                                             "wolf-reproduce" = 5,
+                                             "show-energy?" = FALSE))
+```
+
+#### Step 3: Attach a simulation design
+
+We use the
+[`simdesign_GenSA()`](https://docs.ropensci.org/nlrx/reference/simdesign_GenSA.md)
+function to attach a Simulated Annealing simdesign. We select the
+evaluation criterion (`evalcrit`) by assigning the position of the
+reporter that we want to evaluate within the metrics vector of the
+experiment. In our case, there is only one reporter in the metrics
+vector thus we set evalcrit to use the first reporter (`evalcrit = 1`).
+The control parameter allows us to provide additional parameters for the
+GenSA function (see ?GenSA for details). For demonstration purposes, we
+set the maximum number of iterations to 20. Each evaluation of the
+optimization is one NetLogo run, so a stop criterion like this matters:
+with the GenSA defaults (`maxit = 5000`), an optimization of two
+parameters takes about 50,000 runs, whereas `maxit = 20` takes about
+100.
+[`run_nl_dyn()`](https://docs.ropensci.org/nlrx/reference/run_nl_dyn.md)
+reports the budget when it starts, and warns if `control` contains no
+stop criterion at all.
+
+``` r
+
+nl@simdesign <- simdesign_GenSA(nl, 
+                                evalcrit = 1, 
+                                nseeds = 1, 
+                                control=list(maxit = 20))
+```
+
+#### Step 4: Run simulations
+
+For optimization simdesign, the
+[`run_nl_dyn()`](https://docs.ropensci.org/nlrx/reference/run_nl_dyn.md)
+function lets you execute the simulations. There are some notable
+differences between
+[`run_nl_all()`](https://docs.ropensci.org/nlrx/reference/run_nl_all.md)
+and
+[`run_nl_dyn()`](https://docs.ropensci.org/nlrx/reference/run_nl_dyn.md).
+First, because parameterizations depend of results from previous runs, a
+single optimization can not be parallelized. Second,
+[`run_nl_dyn()`](https://docs.ropensci.org/nlrx/reference/run_nl_dyn.md)
+runs one complete optimization for each random seed of the simdesign,
+one after another, and these optimizations are independent of each
+other. Third, the results of the optimizations are not returned in one
+tibble of model output, because optimization procedures do not report
+model output but their own result objects. Instead, the returned tibble
+contains one row per seed, with the seed in the `seed` column and the
+result object of the respective optimization in the `result` list
+column. The objects are stored exactly as the optimization packages
+return them, so that their summary and plot functions can be applied to
+them.
+
+``` r
+
+results <- run_nl_dyn(nl)
+results$result[[1]]
+```
+
+If an optimization fails, the loop is not interrupted: the error is
+stored in the `result` column of that seed, a warning lists the failed
+seeds, and the results of the remaining seeds are returned. To run only
+some of the seeds, for example to distribute them over the nodes of a
+cluster, reduce the seed vector of the simdesign before the call:
+
+``` r
+
+setsim(nl, "simseeds") <- getsim(nl, "simseeds")[1]
+```
+
+Optimization algorithms evaluate a stochastic model, so every evaluation
+of the fitness criterion carries simulation noise. The `nreplicates`
+argument runs each proposed parameterization several times with
+different random seeds and reports the aggregated value to the
+algorithm. The values are first averaged over all measured ticks of a
+run, then over the replicated runs. Because the replicated runs of one
+evaluation are executed within a single NetLogo instance, they can be
+parallelized with `threads`:
+
+``` r
+
+results <- run_nl_dyn(nl,
+                      nreplicates = 5,
+                      threads = 5)
+```
+
+The replicate seeds are derived from the seed of the respective
+optimization and are the same for every evaluation of that optimization.
+Reusing the seeds this way means that a difference between two proposed
+parameterizations reflects the parameters rather than the random draw,
+which makes the fitness criterion easier to optimize. It also means that
+the optimum is found for this particular set of random realisations, so
+it is good practice to re-evaluate the resulting parameterization with
+different seeds.
+
+#### Step 5: Investigate output
+
+Each element of the `result` column is the output list of the Simulated
+Annealing procedure and contains four elements: `value` reports the
+minimum final value of the evaluation criterion. `par` reports the
+parameter settings of the final parameterisation in the same order as
+defined in the experiment of the nl object. `trace.mat` gives you
+detailed information on the optimization process over all iterations.
+`counts` indicates how often the optimization procedure was executed in
+total.
+
+``` r
+
+results
+results$result[[1]]$value
+results$result[[1]]$par
+```
+
+With several seeds, comparing the optima of the individual optimizations
+shows whether the algorithm converges to the same solution under
+different stochasticity:
+
+``` r
+
+purrr::map_dbl(results$result, "value")
+```
+
+In order to store our results together with the nl object we can attach
+the returned tibble to it:
+
+``` r
+
+setsim(nl, "simoutput") <- results
+saveRDS(nl, file.path(nl@experiment@outpath, "genSA_1.rds"))
+```
+
+## Example 2: Evaluation function as fitness criterion
+
+#### Step 1: Create a nl object:
+
+``` r
+
+library(nlrx)
+# Windows default NetLogo installation path (adjust to your needs!):
+netlogopath <- file.path("C:/Program Files/NetLogo 7.0.4")
+modelpath <- file.path(netlogopath, "models/Sample Models/Biology/Wolf Sheep Predation.nlogox")
+outpath <- file.path("C:/out")
+# Unix default NetLogo installation path (adjust to your needs!):
+netlogopath <- file.path("/home/NetLogo 7.0.4")
+modelpath <- file.path(netlogopath, "models/Sample Models/Biology/Wolf Sheep Predation.nlogox")
+outpath <- file.path("/home/out")
+
+nl <- nl(nlversion = "7.0.4",
+         nlpath = netlogopath,
+         modelpath = modelpath,
+         jvmmem = 1024)
+```
+
+#### Step 2: Attach an experiment
+
+Because we want to apply an optimization algorithm, we need to define
+proper variable ranges. The algorithm is allowed to change the values of
+these parameters within these ranges in order to minimize our fitness
+criterion. In this example we want to use a self-defined evaluation
+function to calculate a fitness criterion. Thus, we add the patch
+coordinates and patch color (as a patch class indicator) to the
+`metrics.patches` vector. We want to use spatial data to calculate the
+landscape edge density index of the final tick and find a
+parameterization that leads to the edge density. Because we only want to
+consider the last tick of the simulation, we set tickmetrics to “false”
+and runtime to 50.
+
+``` r
+
+nl@experiment <- experiment(expname="wolf-sheep-GenSA2",
+                            outpath=outpath,
+                            tickmetrics="false",
+                            idsetup="setup",
+                            idgo="go",
+                            runtime=50,
+                            metrics.patches = c("pxcor", "pycor", "pcolor"),
+                            variables = list('initial-number-sheep' = list(min=50, max=150),
+                                             'initial-number-wolves' = list(min=50, max=150)),
+                            constants = list("model-version" = "sheep-wolves-grass",
+                                             "grass-regrowth-time" = 30,
+                                             "sheep-gain-from-food" = 4,
+                                             "wolf-gain-from-food" = 20,
+                                             "sheep-reproduce" = 4,
+                                             "wolf-reproduce" = 5,
+                                             "show-energy?" = FALSE))
+```
+
+#### Step 3: Attach a simulation design
+
+We use the
+[`simdesign_GenSA()`](https://docs.ropensci.org/nlrx/reference/simdesign_GenSA.md)
+function to attach a Simulated Annealing simdesign. Because we want to
+post-process our simulation results, we need to define an evaluation
+function. The evaluation function needs to accept the nl object as input
+and must return a single numeric value. First we load the package
+landscapemetrics. We then convert the spatial data to a raster format
+and calculate the landscape edge density index. Finally, we report only
+the index value of the resulting tibble.
+
+``` r
+
+critfun <- function(nl) {
+  library(landscapemetrics)
+  res_spat <- nl_to_raster(nl)
+  res_spat_raster <- res_spat$spatial.raster[[1]]
+  lsm <- lsm_l_ed(res_spat_raster)
+  crit <- lsm$value
+  return(crit)
+}
+```
+
+In the
+[`simdesign_GenSA()`](https://docs.ropensci.org/nlrx/reference/simdesign_GenSA.md)
+function we now provide our evaluation function (`critfun`) as
+evaluation criterion (`evalcrit`). The control parameter allows us to
+provide additional parameters for the GenSA function (see ?GenSA for
+details). For demonstration purposes, we set the maximum number of
+iterations to 20.
+
+``` r
+
+nl@simdesign <- simdesign_GenSA(nl, 
+                                evalcrit = critfun, 
+                                nseeds = 1, 
+                                control=list(maxit = 20))
+```
+
+#### Step 4: Run simulations
+
+For optimization simdesign, the
+[`run_nl_dyn()`](https://docs.ropensci.org/nlrx/reference/run_nl_dyn.md)
+function lets you execute the simulations. There are some notable
+differences between
+[`run_nl_all()`](https://docs.ropensci.org/nlrx/reference/run_nl_all.md)
+and
+[`run_nl_dyn()`](https://docs.ropensci.org/nlrx/reference/run_nl_dyn.md).
+First, because parameterizations depend of results from previous runs, a
+single optimization can not be parallelized. Second,
+[`run_nl_dyn()`](https://docs.ropensci.org/nlrx/reference/run_nl_dyn.md)
+runs one complete optimization for each random seed of the simdesign,
+one after another, and these optimizations are independent of each
+other. Third, the results of the optimizations are not returned in one
+tibble of model output, because optimization procedures do not report
+model output but their own result objects. Instead, the returned tibble
+contains one row per seed, with the seed in the `seed` column and the
+result object of the respective optimization in the `result` list
+column. The objects are stored exactly as the optimization packages
+return them, so that their summary and plot functions can be applied to
+them.
+
+``` r
+
+results <- run_nl_dyn(nl)
+results$result[[1]]
+```
+
+If an optimization fails, the loop is not interrupted: the error is
+stored in the `result` column of that seed, a warning lists the failed
+seeds, and the results of the remaining seeds are returned. To run only
+some of the seeds, for example to distribute them over the nodes of a
+cluster, reduce the seed vector of the simdesign before the call:
+
+``` r
+
+setsim(nl, "simseeds") <- getsim(nl, "simseeds")[1]
+```
+
+Optimization algorithms evaluate a stochastic model, so every evaluation
+of the fitness criterion carries simulation noise. The `nreplicates`
+argument runs each proposed parameterization several times with
+different random seeds and reports the aggregated value to the
+algorithm. The values are first averaged over all measured ticks of a
+run, then over the replicated runs. Because the replicated runs of one
+evaluation are executed within a single NetLogo instance, they can be
+parallelized with `threads`:
+
+``` r
+
+results <- run_nl_dyn(nl,
+                      nreplicates = 5,
+                      threads = 5)
+```
+
+The replicate seeds are derived from the seed of the respective
+optimization and are the same for every evaluation of that optimization.
+Reusing the seeds this way means that a difference between two proposed
+parameterizations reflects the parameters rather than the random draw,
+which makes the fitness criterion easier to optimize. It also means that
+the optimum is found for this particular set of random realisations, so
+it is good practice to re-evaluate the resulting parameterization with
+different seeds.
+
+#### Step 5: Investigate output
+
+The output list of the Simulated Annealing procedure contains four
+elements: `value` reports the minimum final value of the evaluation
+criterion. `par` reports the parameter settings of the final
+parameterisation in the same order as defined in the experiment of the
+nl object. `trace.mat` gives you detailed information on the
+optimization process over all iterations. `counts` indicates how often
+the optimization procedure was executed in total.
+
+``` r
+
+results
+results$result[[1]]$value
+```
+
+In order to store our results together with the nl object we can attach
+the returned tibble to it:
+
+``` r
+
+setsim(nl, "simoutput") <- results
+saveRDS(nl, file.path(nl@experiment@outpath, "genSA_2.rds"))
+```

@@ -1,0 +1,13 @@
+{
+  "commit": {
+    "commit": "ad6c1372ccb1ace6b0512f73b5a615dce6cc30f5",
+    "author": "Sebastian Hanss <sebastian@hanss.info>",
+    "time": "2026-11-25T11:49:28Z",
+    "files": 1,
+    "merge": false,
+    "message": "gh-pages + PKGDOWN.yaml: removed, as docs.ropensci.org builds independently\n"
+  },
+  "repo": "https://github.com/ropensci/nlrx",
+  "pkg": "nlrx",
+  "time": "2026-11-25T13:10:30Z"
+}
